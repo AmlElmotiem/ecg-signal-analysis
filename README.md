@@ -13,8 +13,11 @@ teaching setup.
 
 ## What it does
 
-- **`bandpass_filter.m`** — zero-phase Butterworth bandpass (5-15 Hz)
-  that isolates QRS-complex energy.
+- **`bandpass_filter.m`** — zero-phase bandpass (5-15 Hz) that
+  isolates QRS-complex energy, built from scratch as a single biquad
+  IIR filter (no Signal Processing Toolbox, since it isn't installed
+  on the machine this was developed on) — see "Why a hand-built
+  filter" below.
 - **`pan_tompkins_detector.m`** — the full five-stage pipeline:
   bandpass filter → derivative (emphasizes the steep QRS slope) →
   squaring → moving-window integration (~150ms, roughly one QRS
@@ -43,6 +46,20 @@ teaching setup.
 - **`scripts/evaluate_dataset.m`** — runs across every downloaded
   record and reports per-record precision/recall/F1, not just one
   cherry-picked example.
+
+## Why a hand-built filter
+
+The first version of `bandpass_filter.m` used MATLAB's `butter` and
+`filtfilt` — standard, sensible choices. Running the tests turned up
+that this MATLAB installation doesn't have the Signal Processing
+Toolbox those functions require, which would have made the whole
+project depend on a toolbox that isn't guaranteed to be there.
+`bandpass_filter.m` was rewritten as a single 2nd-order IIR biquad
+using the standard Audio EQ Cookbook design formulas (centered at the
+geometric mean of the two cutoffs, Q chosen from the requested
+bandwidth), applied forward-then-backward for zero phase using only
+the base `filter` function. No functionality was lost, and the
+project now has one fewer dependency.
 
 ## Why Python for the download step
 
