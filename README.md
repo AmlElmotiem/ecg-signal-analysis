@@ -23,9 +23,10 @@ teaching setup.
   squaring → moving-window integration (~150ms, roughly one QRS
   width) → adaptive thresholding with a 200ms refractory period.
   **`adaptive_threshold_peaks.m`** implements the running signal/noise
-  level tracking; **`refine_peaks.m`** corrects the delay the
-  integration stage introduces by snapping each candidate back to the
-  true local maximum in the filtered signal.
+  level tracking and a search-back step for recovering missed beats
+  (see "What we found" below); **`refine_peaks.m`** corrects the delay
+  the integration stage introduces by snapping each candidate back to
+  the true local maximum in the filtered signal.
 - **`compute_hrv.m`** — RR intervals, mean heart rate, SDNN (overall
   variability), RMSSD (short-term variability) from detected beats.
 - **`match_peaks.m`** — honestly evaluates detected beats against
@@ -87,11 +88,51 @@ scripts/evaluate_dataset            % honest precision/recall/F1 across all down
 
 ## What we found (the honest part)
 
-To fill in after running `scripts/evaluate_dataset.m` on the real MIT-BIH
-records: per-record precision/recall/F1, and which records the
-detector struggles with (expected candidates: records with a lot of
-ventricular ectopic beats, which have a different QRS morphology than
-the normal beats the adaptive threshold tunes itself to first).
+The first real-data run (`scripts/run_demo.m` on record 100) found a
+real bug immediately: 21 detected beats against 37 annotated ones in
+30 seconds — recall of only 0.568, with perfect precision (1.000).
+Every detection was correct, but roughly half the real beats were
+silently missed, and the computed heart rate (41 bpm) was
+implausibly low for that record's actual ~74 bpm rhythm.
+
+The cause: my first implementation of `adaptive_threshold_peaks.m`
+left out the **search-back step** from the original 1985 paper. A
+single strong beat raises the running "signal level" estimate (and
+therefore the threshold) for a moment; on real ECG, where beat
+amplitude naturally varies a little from one beat to the next, that
+was sometimes enough to make the very next, slightly weaker beat fall
+just under the raised threshold and get silently skipped — a pattern
+that shows up as roughly "every other beat missed." The original
+algorithm handles exactly this: if no beat is confirmed for more than
+1.66x the recent average RR interval, it searches back through that
+gap at half the threshold to recover the missed beat. Implementing
+that (see `search_back` in `adaptive_threshold_peaks.m`) fixed record
+100 outright: 37/37 beats, precision 1.000, recall 1.000, HR 74.0 bpm.
+
+Evaluated across all 10 downloaded records in full (roughly 30 minutes
+of real ECG each, ~24,000 beats total — not just a 30-second clip):
+
+| Record | Detected | Annotated | Precision | Recall | F1 |
+|---|---|---|---|---|---|
+| 100 | 2272 | 2273 | 1.000 | 0.999 | 0.999 |
+| 101 | 1869 | 1865 | 0.997 | 0.999 | 0.998 |
+| 103 | 2083 | 2084 | 1.000 | 1.000 | 1.000 |
+| 105 | 2622 | 2572 | 0.973 | 0.991 | 0.982 |
+| 111 | 2123 | 2124 | 0.997 | 0.997 | 0.997 |
+| 119 | 2027 | 1987 | 0.980 | 1.000 | 0.990 |
+| 122 | 2477 | 2476 | 1.000 | 1.000 | 1.000 |
+| 205 | 2654 | 2656 | 0.991 | 0.991 | 0.991 |
+| 213 | 3249 | 3251 | 0.990 | 0.989 | 0.989 |
+| 223 | 2602 | 2605 | 0.969 | 0.968 | 0.968 |
+
+**Mean F1: 0.991.** Record 223 is the weakest (F1 0.968) — it's a
+known arrhythmia-heavy recording in the MIT-BIH set with frequent
+ectopic beats whose QRS shape differs from the normal beats the
+detector calibrates on early in the record, which fits the
+expectation that non-normal beat morphology is where a
+threshold-based detector like this is weakest. Record 105 (F1 0.982)
+is a noisier recording, consistent with more false positives
+(precision 0.973 is its lowest score of the ten).
 
 ## Limitations
 
