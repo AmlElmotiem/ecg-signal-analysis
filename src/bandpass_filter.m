@@ -29,8 +29,13 @@ function filtered = bandpass_filter(signal, fs, low_hz, high_hz)
     b = [b0, b1, b2] / a0;
     a = [1, a1 / a0, a2 / a0];
 
+    is_column = iscolumn(signal);
     row_signal = signal(:)';
     forward = filter(b, a, row_signal);
     backward = filter(b, a, fliplr(forward));
     filtered = fliplr(backward);
+
+    if is_column
+        filtered = filtered(:);  % match the caller's input orientation
+    end
 end
