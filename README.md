@@ -47,6 +47,22 @@ teaching setup.
 - **`scripts/evaluate_dataset.m`** — runs across every downloaded
   record and reports per-record precision/recall/F1, not just one
   cherry-picked example.
+- **`extract_beat_features.m`** — four simple per-beat features (RR
+  interval before/after, peak amplitude, QRS width) used for beat
+  classification.
+- **`fisher_lda_train.m`** / **`fisher_lda_predict.m`** — two-class
+  Fisher Linear Discriminant Analysis, built from scratch (no
+  Statistics and Machine Learning Toolbox) — the same general
+  classification approach as `bci-arm-control`, applied here to
+  telling normal beats from PVCs instead of EEG motor-imagery classes.
+- **`build_beat_dataset.m`** / **`load_ecg_annotations.m`** — load a
+  record's full beat list *with* its annotation symbols (not just
+  "is this a beat"), so RR-interval features stay correct even when
+  only a subset of beat types is used for training.
+- **`scripts/train_beat_classifier.m`** — trains the beat classifier
+  on some records and evaluates it on others entirely unseen during
+  training, honestly, the same across-patient philosophy as
+  `bci-arm-control`'s subject-grouped evaluation.
 
 ## Why a hand-built filter
 
@@ -81,9 +97,10 @@ python scripts/download_data.py     # downloads 10 real MIT-BIH records to data/
 
 ```matlab
 addpath(genpath(pwd))
-runtests('tests')                   % 19 tests, all on synthetic signals, no download needed
+runtests('tests')                   % 26 tests, all on synthetic signals, no download needed
 scripts/run_demo                    % annotated plot + HRV for one real record
 scripts/evaluate_dataset            % honest precision/recall/F1 across all downloaded records
+scripts/train_beat_classifier       % normal-vs-PVC classifier, trained and tested on disjoint records
 ```
 
 ## What we found (the honest part)
@@ -134,23 +151,43 @@ threshold-based detector like this is weakest. Record 105 (F1 0.982)
 is a noisier recording, consistent with more false positives
 (precision 0.973 is its lowest score of the ten).
 
+### Beat classification: accuracy looked great and was actually a trap
+
+Trained a from-scratch Fisher LDA classifier (normal vs. PVC) on 8
+records (15,855 beats) and evaluated it on 2 entirely different
+records held out from training (5,363 beats: 4,670 normal, 693 PVC).
+With the classifier's default decision threshold (the midpoint between
+the two projected class means):
+
+| | Accuracy | PVC precision | PVC recall | PVC F1 |
+|---|---|---|---|---|
+| Default threshold | 0.8822 | 0.9296 | 0.0952 | 0.1728 |
+
+88% accuracy sounds good — until you notice the test set is 87% normal
+beats, so "always predict normal" alone would already score close to
+that. The real story is in the PVC row: recall of 0.095 means the
+classifier caught fewer than 1 in 10 real PVCs, while precision stayed
+high (0.93) because it only very rarely misfired on a normal beat.
+**This is the classic accuracy-on-imbalanced-data trap** — a metric
+that looks reassuring while the model is actually failing at the one
+thing that matters clinically (missing an abnormal beat is far worse
+than a false alarm). Next step: find a way to raise recall without
+throwing away the good precision.
+
 ## Limitations
 
 - Single-lead detection only (MLII channel) — does not fuse multiple
   ECG leads, which real clinical detectors often do for robustness.
-- No beat *classification* (normal vs. PVC vs. paced, etc.) — this
-  project only detects and counts R-peaks, it does not diagnose
-  arrhythmia type, even though the ground truth annotations include
-  that information.
 - The adaptive threshold's initial signal/noise levels are estimated
   from the first 2 seconds of each record; a record that starts with
   an atypical rhythm could start with a poorly calibrated threshold.
+- The beat classifier's default threshold gives very low PVC recall
+  (0.095) despite high overall accuracy — see "What we found" above.
 
 ## Roadmap
 
-- Beat classification using the existing ground-truth annotation
-  types (tie together with the general classification approach from
-  `bci-arm-control`)
+- Fix the beat classifier's low PVC recall (tune the decision
+  threshold, or use a richer feature set)
 - Multi-lead fusion where a record provides more than one channel
 - Frequency-domain HRV metrics (LF/HF ratio) alongside the current
   time-domain ones (SDNN, RMSSD)
