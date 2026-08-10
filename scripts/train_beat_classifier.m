@@ -26,41 +26,38 @@ fprintf('Test:  %d beats (%d N, %d V) from %d records (NOT seen during training)
     numel(y_test), sum(y_test == 1), sum(y_test == 2), numel(test_records));
 
 model = fisher_lda_train(X_train, y_train);
-pred_test = fisher_lda_predict(model, X_test);
 
-accuracy = mean(pred_test == y_test);
+% Baseline: the default midpoint-of-means threshold.
+pred_default = fisher_lda_predict(model, X_test);
+report_metrics('Default (midpoint) threshold', pred_default, y_test);
 
-tp_v = sum(pred_test == 2 & y_test == 2);
-fp_v = sum(pred_test == 2 & y_test == 1);
-fn_v = sum(pred_test == 1 & y_test == 2);
-precision_v = tp_v / (tp_v + fp_v);
-recall_v = tp_v / (tp_v + fn_v);
-f1_v = 2 * precision_v * recall_v / (precision_v + recall_v);
+% Alternative: sweep thresholds on TRAINING scores only (never on
+% test) to find the one maximizing F1 for the minority class, then
+% apply that fixed threshold to the untouched test set.
+Xz_train = (X_train - model.feature_mean) ./ model.feature_std;
+train_scores = Xz_train * model.w;
+tuned_threshold = find_best_threshold(train_scores, y_train, 2, 1);
 
-fprintf('\nOverall accuracy: %.4f\n', accuracy);
-fprintf('PVC (V) detection -- precision: %.4f  recall: %.4f  F1: %.4f\n', ...
-    precision_v, recall_v, f1_v);
+model_tuned = model;
+model_tuned.threshold = tuned_threshold;
+pred_tuned = fisher_lda_predict(model_tuned, X_test);
+report_metrics('F1-tuned threshold (chosen on train only)', pred_tuned, y_test);
 
-fprintf('\nConfusion matrix (rows=true, cols=predicted):\n');
-fprintf('%12s %8s %8s\n', '', 'Pred N', 'Pred V');
-fprintf('%12s %8d %8d\n', 'True N', sum(y_test == 1 & pred_test == 1), sum(y_test == 1 & pred_test == 2));
-fprintf('%12s %8d %8d\n', 'True V', sum(y_test == 2 & pred_test == 1), sum(y_test == 2 & pred_test == 2));
+function report_metrics(label, pred, y_true)
+    accuracy = mean(pred == y_true);
+    tp_v = sum(pred == 2 & y_true == 2);
+    fp_v = sum(pred == 2 & y_true == 1);
+    fn_v = sum(pred == 1 & y_true == 2);
+    precision_v = tp_v / (tp_v + fp_v);
+    recall_v = tp_v / (tp_v + fn_v);
+    f1_v = 2 * precision_v * recall_v / (precision_v + recall_v);
 
-results_dir = fullfile(project_root, 'results');
-if ~exist(results_dir, 'dir')
-    mkdir(results_dir);
+    fprintf('\n== %s ==\n', label);
+    fprintf('Overall accuracy: %.4f\n', accuracy);
+    fprintf('PVC (V) detection -- precision: %.4f  recall: %.4f  F1: %.4f\n', ...
+        precision_v, recall_v, f1_v);
+    fprintf('Confusion matrix (rows=true, cols=predicted):\n');
+    fprintf('%12s %8s %8s\n', '', 'Pred N', 'Pred V');
+    fprintf('%12s %8d %8d\n', 'True N', sum(y_true == 1 & pred == 1), sum(y_true == 1 & pred == 2));
+    fprintf('%12s %8d %8d\n', 'True V', sum(y_true == 2 & pred == 1), sum(y_true == 2 & pred == 2));
 end
-
-fig = figure('Color', 'w');
-scores_n = (X_test(y_test == 1, :) - model.feature_mean) ./ model.feature_std * model.w;
-scores_v = (X_test(y_test == 2, :) - model.feature_mean) ./ model.feature_std * model.w;
-histogram(scores_n, 30, 'FaceAlpha', 0.6, 'DisplayName', 'True N');
-hold on;
-histogram(scores_v, 30, 'FaceAlpha', 0.6, 'DisplayName', 'True V');
-xline(model.threshold, 'k--', 'DisplayName', 'Decision threshold');
-xlabel('LDA projection score');
-ylabel('Count');
-title('Beat classifier: LDA projection on held-out test records');
-legend('Location', 'best');
-saveas(fig, fullfile(results_dir, 'beat_classifier_scores.png'));
-fprintf('\nWrote %s\n', fullfile(results_dir, 'beat_classifier_scores.png'));

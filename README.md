@@ -55,6 +55,10 @@ teaching setup.
   Statistics and Machine Learning Toolbox) — the same general
   classification approach as `bci-arm-control`, applied here to
   telling normal beats from PVCs instead of EEG motor-imagery classes.
+- **`find_best_threshold.m`** — sweeps decision thresholds on
+  *training* scores only to maximize F1 for the minority class. See
+  "What we found" below for why the default threshold alone wasn't
+  good enough.
 - **`build_beat_dataset.m`** / **`load_ecg_annotations.m`** — load a
   record's full beat list *with* its annotation symbols (not just
   "is this a beat"), so RR-interval features stay correct even when
@@ -97,7 +101,7 @@ python scripts/download_data.py     # downloads 10 real MIT-BIH records to data/
 
 ```matlab
 addpath(genpath(pwd))
-runtests('tests')                   % 26 tests, all on synthetic signals, no download needed
+runtests('tests')                   % 28 tests, all on synthetic signals, no download needed
 scripts/run_demo                    % annotated plot + HRV for one real record
 scripts/evaluate_dataset            % honest precision/recall/F1 across all downloaded records
 scripts/train_beat_classifier       % normal-vs-PVC classifier, trained and tested on disjoint records
@@ -171,8 +175,25 @@ high (0.93) because it only very rarely misfired on a normal beat.
 **This is the classic accuracy-on-imbalanced-data trap** — a metric
 that looks reassuring while the model is actually failing at the one
 thing that matters clinically (missing an abnormal beat is far worse
-than a false alarm). Next step: find a way to raise recall without
-throwing away the good precision.
+than a false alarm).
+
+Fix: `find_best_threshold.m` sweeps candidate thresholds over the
+*training* scores only (never touching the test set, to avoid leaking
+test information into the model) and picks whichever maximizes F1 for
+the PVC class:
+
+| | Accuracy | PVC precision | PVC recall | PVC F1 |
+|---|---|---|---|---|
+| Default threshold | 0.8822 | 0.9296 | 0.0952 | 0.1728 |
+| F1-tuned threshold | 0.9377 | 0.9864 | 0.5253 | 0.6855 |
+
+Recall more than quintupled (0.095 → 0.525) and precision actually
+*improved* too (0.930 → 0.986), while overall accuracy also went up —
+moving the threshold didn't trade one metric for another here, it was
+just a better threshold. Recall of 0.525 is still an honest,
+real limitation, not a solved problem: this simple 4-feature
+classifier still misses about half of real PVCs on unseen patients —
+see Limitations.
 
 ## Limitations
 
@@ -181,13 +202,18 @@ throwing away the good precision.
 - The adaptive threshold's initial signal/noise levels are estimated
   from the first 2 seconds of each record; a record that starts with
   an atypical rhythm could start with a poorly calibrated threshold.
-- The beat classifier's default threshold gives very low PVC recall
-  (0.095) despite high overall accuracy — see "What we found" above.
+- The beat classifier only distinguishes normal beats from PVCs (2 of
+  the ~15 annotation types in MIT-BIH) using 4 simple features, and
+  even after threshold tuning still misses about half of real PVCs on
+  unseen patients (recall 0.525) — a stronger feature set (e.g. the
+  actual QRS waveform shape, not just its width) would likely help
+  more than further threshold tuning at this point.
 
 ## Roadmap
 
-- Fix the beat classifier's low PVC recall (tune the decision
-  threshold, or use a richer feature set)
+- Richer beat-classification features (full QRS waveform shape via
+  e.g. a few wavelet or PCA coefficients, not just width) to push PVC
+  recall further
 - Multi-lead fusion where a record provides more than one channel
 - Frequency-domain HRV metrics (LF/HF ratio) alongside the current
   time-domain ones (SDNN, RMSSD)
