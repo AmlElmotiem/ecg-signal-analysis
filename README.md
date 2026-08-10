@@ -211,6 +211,13 @@ see Limitations.
 
 ## Roadmap
 
+**Done:**
+- ~~Beat classification using the existing ground-truth annotation
+  types~~ — see "What we found" above (from-scratch Fisher LDA,
+  trained/evaluated on disjoint patients, PVC recall 0.095 → 0.525
+  after fixing the decision threshold)
+
+**Next:**
 - Richer beat-classification features (full QRS waveform shape via
   e.g. a few wavelet or PCA coefficients, not just width) to push PVC
   recall further
